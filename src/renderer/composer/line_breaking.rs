@@ -360,7 +360,15 @@ fn fill_lines(
     let mut fs_at_last_break = 0.0f64;
 
     let effective_width = |first: bool| -> f64 {
-        if first { (available_width_px - indent_px.max(0.0)).max(1.0) } else { available_width_px }
+        if indent_px > 0.0 {
+            // 들여쓰기: 첫 줄 = available - indent (좁아짐), 이후 줄 = available
+            if first { (available_width_px - indent_px).max(1.0) } else { available_width_px }
+        } else if indent_px < 0.0 {
+            // 내어쓰기: 첫 줄 = available (전체 폭), 이후 줄 = available - |indent| (좁아짐)
+            if first { available_width_px } else { (available_width_px + indent_px).max(1.0) }
+        } else {
+            available_width_px
+        }
     };
 
     for (ti, token) in tokens.iter().enumerate() {
