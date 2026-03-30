@@ -62,6 +62,11 @@ impl Paginator {
         let mut wrap_around_table_para: usize = 0;  // 어울림 표의 문단 인덱스
         let mut prev_pagination_para: Option<usize> = None;  // vpos 보정용 이전 문단
 
+        // 고정값 줄간격 TAC 표 병행 배치:
+        // 음수 line_spacing을 가진 TAC 표 이후, 같은 Fixed 줄간격의 빈 문단은
+        // 표 영역 안에 겹쳐 배치되므로 높이를 소비하지 않음.
+        let mut fixed_overlay_remaining: f64 = 0.0;  // 표 영역 내 남은 겹침 높이
+
         // 빈 줄 감추기: 페이지 시작 부분에서 감춘 빈 줄 수 (최대 2개)
         let mut hidden_empty_lines: u8 = 0;
         let mut hidden_empty_page: usize = 0; // 현재 감추기 중인 페이지
@@ -355,8 +360,31 @@ impl Paginator {
                 if height_added > cap {
                     st.current_height = height_before_controls + cap;
                 }
+
+                // 고정값 줄간격 + 음수 ls: 후속 Fixed 문단이 표와 겹치는 높이 계산
+                if let Some(seg) = para.line_segs.first() {
+                    if seg.line_spacing < 0 {
+                        let table_visual_h = crate::renderer::hwpunit_to_px(seg.line_height, self.dpi);
+                        let advance_h = crate::renderer::hwpunit_to_px(seg.line_height + seg.line_spacing, self.dpi).max(0.0);
+                        fixed_overlay_remaining = (table_visual_h - advance_h).max(0.0);
+                    }
+                }
             }
 
+            // 고정값 줄간격 병행: Fixed 빈 문단이 표 영역 내에 있으면 높이 미소비
+            if fixed_overlay_remaining > 0.0 && !has_table {
+                let is_fixed = para_styles.get(para.para_shape_id as usize)
+                    .map(|ps| ps.line_spacing_type == crate::model::style::LineSpacingType::Fixed)
+                    .unwrap_or(false);
+                if is_fixed {
+                    let consumed = para_height.min(fixed_overlay_remaining);
+                    fixed_overlay_remaining -= consumed;
+                    st.current_height -= consumed;
+                } else {
+                    // Percent 등 다른 줄간격을 만나면 겹침 종료
+                    fixed_overlay_remaining = 0.0;
+                }
+            }
 
         }
 

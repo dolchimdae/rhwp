@@ -1209,6 +1209,10 @@ impl LayoutEngine {
         let mut prev_layout_para: Option<usize> = None;
         let mut prev_tac_seg_applied = false;
 
+        // 고정값 줄간격 TAC 표 병행: 표 영역 내 Fixed 문단을 표 위에 겹쳐 배치
+        let mut fixed_overlay_remaining: f64 = 0.0;
+        let mut fixed_overlay_y_restore: f64 = 0.0;  // 겹침 종료 후 복원할 y
+
         // vpos 보정을 위한 페이지 기준 vpos 계산
         // 페이지 첫 항목의 vpos를 기준점으로 삼아 모든 페이지에서 vpos 보정 적용
         let mut vpos_page_base: Option<i32> = col_content.items.first().and_then(|item| {
@@ -1310,6 +1314,39 @@ impl LayoutEngine {
             );
             y_offset = new_y;
             prev_tac_seg_applied = was_tac;
+
+            // 고정값 줄간격 TAC 표 병행 배치
+            if was_tac {
+                // TAC 표 문단의 음수 line_spacing 감지
+                if let Some(para) = paragraphs.get(item_para) {
+                    if let Some(seg) = para.line_segs.first() {
+                        if seg.line_spacing < 0 {
+                            let table_visual_h = hwpunit_to_px(seg.line_height, self.dpi);
+                            let advance_h = hwpunit_to_px(seg.line_height + seg.line_spacing, self.dpi).max(0.0);
+                            fixed_overlay_remaining = (table_visual_h - advance_h).max(0.0);
+                            fixed_overlay_y_restore = y_offset;
+                            // y를 표 시작 근처로 되돌림 (표와 겹쳐서 배치)
+                            y_offset -= fixed_overlay_remaining;
+                        }
+                    }
+                }
+            } else if fixed_overlay_remaining > 0.0 {
+                // Fixed 문단이면 겹침 영역 차감, 아니면 겹침 종료 후 y 복원
+                let is_fixed = paragraphs.get(item_para)
+                    .and_then(|p| styles.para_styles.get(p.para_shape_id as usize))
+                    .map(|ps| ps.line_spacing_type == crate::model::style::LineSpacingType::Fixed)
+                    .unwrap_or(false);
+                if is_fixed {
+                    let consumed = (new_y - (fixed_overlay_y_restore - fixed_overlay_remaining)).min(fixed_overlay_remaining);
+                    if consumed > 0.0 {
+                        fixed_overlay_remaining -= consumed;
+                    }
+                } else {
+                    // Percent 등 다른 줄간격: 겹침 종료, y를 표 아래로 복원
+                    y_offset = fixed_overlay_y_restore;
+                    fixed_overlay_remaining = 0.0;
+                }
+            }
 
             // 표/Shape 처리 후 vpos 기준점 무효화
             // 표/Shape의 LINE_SEG lh는 개체 높이를 포함하여 실제 렌더링 높이와 다르므로
