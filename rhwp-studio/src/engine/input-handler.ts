@@ -180,6 +180,7 @@ export class InputHandler {
   private _iosComposing = false;
   private _iosAnchor: DocumentPosition | null = null;
   private _iosLength = 0;
+  private _iosPrevText = '';
   private _iosInputTimer: any = null;
   private _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

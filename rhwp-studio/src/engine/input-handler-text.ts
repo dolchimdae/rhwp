@@ -278,16 +278,15 @@ export function onInput(this: any): void {
   }
 
   // iOS 폴백: composition 이벤트 없이 input만으로 한글 조합 처리
-  // iOS contentEditable에서는 composition 이벤트가 발생하지 않고
-  // input 이벤트만 연속 발생한다. textContent가 누적되므로
-  // 마지막 글자만 조합 대상으로 처리하고, 확정된 글자는 커밋한다.
+  // iOS contentEditable에서는 compositionStart/End가 발생하지 않는다.
+  // div의 textContent를 건드리지 않고, 이전 상태와 비교하여 변경분만 처리.
   if (this._isIOS && !this.isComposing) {
-    if (!text) {
-      // 빈 입력 무시
-      return;
-    }
+    if (!text && !this._iosComposing) return;
 
-    // 조합 앵커 설정 (첫 입력 시)
+    const prevText = this._iosPrevText || '';
+    this._iosPrevText = text;
+
+    // 첫 입력: 앵커 설정
     if (!this._iosComposing) {
       this._iosComposing = true;
       if (this.cursor.isInHeaderFooter()) {
@@ -301,31 +300,21 @@ export function onInput(this: any): void {
     }
 
     if (this._iosAnchor) {
-      // 이전 조합 글자 삭제
+      // 이전에 삽입한 텍스트 전부 삭제
       if (this._iosLength > 0) {
         this.deleteTextAt(this._iosAnchor, this._iosLength);
       }
 
-      // 마지막 글자만 조합 대상, 그 앞은 확정
-      const lastChar = text.slice(-1);
-      const committed = text.slice(0, -1);
-
-      // 확정된 텍스트 삽입 (조합 완료된 부분)
-      if (committed.length > 0) {
-        this.insertTextAtRaw(this._iosAnchor, committed);
-        // 앵커를 확정 텍스트 뒤로 이동
-        this._iosAnchor = {
-          ...this._iosAnchor,
-          charOffset: this._iosAnchor.charOffset + committed.length,
-        };
+      // 현재 div 전체 텍스트를 문서에 삽입
+      if (text) {
+        this.insertTextAtRaw(this._iosAnchor, text);
+        this._iosLength = text.length;
+      } else {
+        this._iosLength = 0;
       }
 
-      // 조합 중인 마지막 글자 삽입
-      this.insertTextAtRaw(this._iosAnchor, lastChar);
-      this._iosLength = 1; // 항상 마지막 1글자만 조합 중
-
       // 커서 이동
-      const newOffset = this._iosAnchor.charOffset + 1;
+      const newOffset = this._iosAnchor.charOffset + (text?.length || 0);
       if (this.cursor.isInHeaderFooter()) {
         this.cursor.setHfCursorPosition(this.cursor.hfParaIdx, newOffset);
       } else if (this.cursor.isInFootnote()) {
@@ -334,21 +323,20 @@ export function onInput(this: any): void {
         this.cursor.moveTo({ ...this._iosAnchor, charOffset: newOffset });
       }
       this.afterEdit();
-
-      // div 내용 초기화 (누적 방지) — 마지막 글자만 남김
-      this.textarea.value = lastChar;
     }
 
-    // 조합 종료 감지: 일정 시간 입력이 없으면 조합 완료
+    // 조합 종료 감지: 일정 시간 입력이 없으면 조합 완료 → div 초기화
     clearTimeout(this._iosInputTimer);
     this._iosInputTimer = setTimeout(() => {
       if (this._iosComposing) {
+        // 조합 확정: 앵커를 현재 위치로 이동
         this._iosComposing = false;
         this._iosAnchor = null;
         this._iosLength = 0;
+        this._iosPrevText = '';
         this.textarea.value = '';
       }
-    }, 500);
+    }, 300);
     return;
   }
 
