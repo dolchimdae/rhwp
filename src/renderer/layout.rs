@@ -1761,7 +1761,17 @@ impl LayoutEngine {
             prev_tac_seg_applied, wrap_around_paras, ..
         } = ctx;
         // 표 앵커 문단의 y 위치 등록
-        para_start_y.entry(para_index).or_insert(y_offset);
+        // 같은 문단에 TAC(ci=0) 뒤 비-TAC(ci=1)가 올 때:
+        // 비-TAC 표는 TAC 배치 후의 y_offset을 기준으로 배치되어야 함
+        if let Some(existing_y) = para_start_y.get(&para_index) {
+            // 이미 등록된 y보다 현재 y_offset이 크면 갱신
+            // (이전 TAC 표가 y_offset을 진행시킨 경우)
+            if y_offset > *existing_y + 1.0 {
+                para_start_y.insert(para_index, y_offset);
+            }
+        } else {
+            para_start_y.insert(para_index, y_offset);
+        }
         let para_y_for_table = *para_start_y.get(&para_index).unwrap_or(&y_offset);
         if let Some(para) = paragraphs.get(para_index) {
             let is_tac = para.controls.get(control_index)
@@ -1927,7 +1937,12 @@ impl LayoutEngine {
                     let tac_idx_current = para.controls.iter().take(control_index + 1)
                         .filter(|c| matches!(c, Control::Table(t) if t.common.treat_as_char))
                         .count();
-                    if tac_idx_current < tac_count_total {
+                    // TAC 표 사이에 non-TAC 표가 있는지 확인
+                    let has_non_tac_between = para.controls.iter()
+                        .skip(control_index + 1)
+                        .take_while(|c| !matches!(c, Control::Table(t) if t.common.treat_as_char))
+                        .any(|c| matches!(c, Control::Table(t) if !t.common.treat_as_char));
+                    if tac_idx_current < tac_count_total && !has_non_tac_between {
                         // 다음 TAC가 있으면: vpos 차이분만 추가 (= line_spacing)
                         // 이후 tac_seg_applied 경로의 line_spacing 추가를 스킵하기 위해
                         // 여기서 직접 return (spacing_after/line_spacing 이중 적용 방지)
