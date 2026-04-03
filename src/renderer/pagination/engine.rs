@@ -1026,11 +1026,15 @@ impl Paginator {
             let is_last_tac = tac_idx + 1 == tac_table_count;
             para.line_segs.get(tac_idx).map(|seg| {
                 let line_h = crate::renderer::hwpunit_to_px(seg.line_height, self.dpi);
-                let ls = if seg.line_spacing > 0 {
-                    crate::renderer::hwpunit_to_px(seg.line_spacing, self.dpi)
-                } else { 0.0 };
-                // 마지막 TAC도 line_spacing 포함 (레이아웃과 일치)
-                line_h + ls
+                if is_last_tac {
+                    // 마지막 TAC: line_spacing 제외 (trailing spacing)
+                    line_h
+                } else {
+                    let ls = if seg.line_spacing > 0 {
+                        crate::renderer::hwpunit_to_px(seg.line_spacing, self.dpi)
+                    } else { 0.0 };
+                    line_h + ls
+                }
             }).unwrap_or(effective_height + host_spacing)
         } else {
             effective_height + host_spacing
