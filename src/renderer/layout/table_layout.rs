@@ -1084,6 +1084,11 @@ impl LayoutEngine {
                                     text_height += eq_h;
                                 }
                             }
+                            Control::Table(t) => {
+                                // 중첩 표 높이: 행 높이 합산
+                                let nested_h = self.calc_nested_table_height(t, styles);
+                                text_height += nested_h;
+                            }
                             _ => {}
                         }
                     }
@@ -1116,8 +1121,13 @@ impl LayoutEngine {
                 composed_height.max(vpos_height)
             };
 
-            // 수직 정렬
-            let text_y_start = match cell.vertical_align {
+            // 수직 정렬 (분할 표에서는 Top 강제 — 보이는 영역이 전체 셀보다 작음)
+            let effective_valign = if row_filter.is_some() {
+                VerticalAlign::Top
+            } else {
+                cell.vertical_align
+            };
+            let text_y_start = match effective_valign {
                 VerticalAlign::Top => cell_y + pad_top,
                 VerticalAlign::Center => {
                     let mechanical_offset = (inner_height - total_content_height).max(0.0) / 2.0;

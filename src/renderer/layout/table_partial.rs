@@ -476,12 +476,9 @@ impl LayoutEngine {
             // 수직 정렬
             // 분할 행에서도 셀 콘텐츠가 visible area에 모두 들어가면 원래 정렬 적용
             use crate::model::table::VerticalAlign;
+            // 분할 행에서는 항상 Top 정렬 (컨텐츠가 페이지를 넘어 분할되었으므로)
             let effective_align = if is_in_split_row {
-                if is_split_end_row && total_content_height < inner_height {
-                    cell.vertical_align
-                } else {
-                    VerticalAlign::Top
-                }
+                VerticalAlign::Top
             } else {
                 cell.vertical_align
             };
