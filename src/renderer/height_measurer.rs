@@ -668,8 +668,21 @@ impl HeightMeasurer {
 
         // 셀 간격 포함한 표 높이
         let cell_spacing = hwpunit_to_px(table.cell_spacing as i32, self.dpi);
-        let table_height: f64 = row_heights.iter().sum::<f64>()
+        let raw_table_height: f64 = row_heights.iter().sum::<f64>()
             + cell_spacing * (row_count.saturating_sub(1) as f64);
+        // TAC 표: common.height(표 속성 높이)를 상한으로 사용
+        // 한컴은 TAC 표의 높이를 속성값으로 유지 (셀 콘텐츠 넘침은 클리핑)
+        // 비-TAC 표: 셀 콘텐츠 기반 확장 유지 (행 분할 필요)
+        let common_h = hwpunit_to_px(table.common.height as i32, self.dpi);
+        let table_height = if table.common.treat_as_char && common_h > 0.0 && raw_table_height > common_h + 1.0 {
+            let scale = common_h / raw_table_height;
+            for h in &mut row_heights {
+                *h *= scale;
+            }
+            common_h
+        } else {
+            raw_table_height
+        };
 
         // 누적 행 높이 계산 (이진 탐색용)
         let mut cumulative_heights = vec![0.0f64; row_count + 1];
