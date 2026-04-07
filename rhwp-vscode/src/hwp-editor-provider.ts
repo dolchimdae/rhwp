@@ -62,9 +62,49 @@ export class HwpEditorProvider implements vscode.CustomReadonlyEditorProvider {
     const wasmUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "dist", "media", "rhwp_bg.wasm")
     );
+    const fontsBase = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "dist", "media", "fonts")
+    );
 
     const nonce = getNonce();
     const cspSource = webview.cspSource;
+
+    // 폰트 매핑: [CSS font-family, woff2 파일명, format]
+    const fontEntries: [string, string, string][] = [
+      // 함초롬체 CDN (woff)
+      ['함초롬바탕', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/HANBatang.woff', 'woff'],
+      ['함초롬돋움', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_four@1.0/HCRDotum.woff', 'woff'],
+      ['함초롱바탕', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/HANBatang.woff', 'woff'],
+      ['함초롱돋움', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_four@1.0/HCRDotum.woff', 'woff'],
+      ['한컴바탕', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/HANBatang.woff', 'woff'],
+      ['한컴돋움', 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_four@1.0/HCRDotum.woff', 'woff'],
+      // 오픈소스 로컬 (woff2)
+      ['Noto Serif KR', `${fontsBase}/NotoSerifKR-Regular.woff2`, 'woff2'],
+      ['Noto Sans KR', `${fontsBase}/NotoSansKR-Regular.woff2`, 'woff2'],
+      ['Pretendard', `${fontsBase}/Pretendard-Regular.woff2`, 'woff2'],
+      ['D2Coding', `${fontsBase}/D2Coding-Regular.woff2`, 'woff2'],
+      ['나눔고딕', `${fontsBase}/NanumGothic-Regular.woff2`, 'woff2'],
+      ['나눔명조', `${fontsBase}/NanumMyeongjo-Regular.woff2`, 'woff2'],
+      ['고운바탕', `${fontsBase}/GowunBatang-Regular.woff2`, 'woff2'],
+      ['고운돋움', `${fontsBase}/GowunDodum-Regular.woff2`, 'woff2'],
+      // HY 폰트 → Noto 대체
+      ['HY헤드라인M', `${fontsBase}/NotoSansKR-Bold.woff2`, 'woff2'],
+      ['HY견명조', `${fontsBase}/NotoSerifKR-Bold.woff2`, 'woff2'],
+      ['HY신명조', `${fontsBase}/NotoSerifKR-Regular.woff2`, 'woff2'],
+      ['HY그래픽', `${fontsBase}/NotoSansKR-Regular.woff2`, 'woff2'],
+      ['휴먼명조', `${fontsBase}/NotoSerifKR-Regular.woff2`, 'woff2'],
+      // 시스템 폰트 → 오픈소스 대체
+      ['맑은 고딕', `${fontsBase}/Pretendard-Regular.woff2`, 'woff2'],
+      ['바탕', `${fontsBase}/NotoSerifKR-Regular.woff2`, 'woff2'],
+      ['돋움', `${fontsBase}/NotoSansKR-Regular.woff2`, 'woff2'],
+      ['굴림', `${fontsBase}/NotoSansKR-Regular.woff2`, 'woff2'],
+      ['굴림체', `${fontsBase}/D2Coding-Regular.woff2`, 'woff2'],
+      ['바탕체', `${fontsBase}/D2Coding-Regular.woff2`, 'woff2'],
+      ['궁서', `${fontsBase}/GowunBatang-Regular.woff2`, 'woff2'],
+    ];
+    const fontFaceCSS = fontEntries.map(([name, url, fmt]) =>
+      `@font-face { font-family: "${name}"; src: url("${url}") format("${fmt}"); font-display: swap; }`
+    ).join('\n    ');
 
     return /* html */ `<!DOCTYPE html>
 <html lang="ko">
@@ -75,11 +115,12 @@ export class HwpEditorProvider implements vscode.CustomReadonlyEditorProvider {
              script-src 'nonce-${nonce}' ${cspSource} 'unsafe-eval' 'wasm-unsafe-eval';
              style-src 'nonce-${nonce}' ${cspSource};
              img-src ${cspSource} data:;
-             font-src ${cspSource};
+             font-src ${cspSource} https://cdn.jsdelivr.net;
              connect-src ${cspSource}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HWP Viewer</title>
   <style nonce="${nonce}">
+    ${fontFaceCSS}
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: var(--vscode-editor-background);
