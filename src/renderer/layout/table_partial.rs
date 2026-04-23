@@ -733,8 +733,33 @@ impl LayoutEngine {
                                         height: (inner_area.height - (para_y - inner_area.y)).max(0.0),
                                         ..inner_area
                                     };
+<<<<<<< HEAD
                                     self.layout_picture(tree, &mut cell_node, pic, &pic_area, bin_data_content, para_alignment, None, None, None);
                                     let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
+=======
+                                    let (pic_x, pic_y) = self.compute_object_position(
+                                        &pic.common, pic_w, pic_h,
+                                        &cell_area, &inner_area, &inner_area, &inner_area,
+                                        para_y, para_alignment,
+                                    );
+                                    // 셀 경계를 넘지 않도록 clamp (table_layout 과 동일)
+                                    let cell_left = inner_area.x;
+                                    let cell_right = inner_area.x + inner_area.width;
+                                    let max_x = (cell_right - pic_w).max(cell_left);
+                                    let pic_x = pic_x.clamp(cell_left, max_x);
+                                    let pic_area = LayoutRect {
+                                        x: pic_x,
+                                        y: pic_y,
+                                        width: pic_w,
+                                        height: pic_h,
+                                    };
+                                    // layout_picture 의 offset 중복 적용을 막기 위해 clone 후 offset 0 으로 세팅.
+                                    // (compute_object_position 에서 이미 적용 + clamp 완료)
+                                    let mut pic_for_render = pic.as_ref().clone();
+                                    pic_for_render.common.horizontal_offset = 0;
+                                    pic_for_render.common.vertical_offset = 0;
+                                    self.layout_picture(tree, &mut cell_node, &pic_for_render, &pic_area, bin_data_content, Alignment::Left, None, None, None);
+>>>>>>> 14f1931 (fix(hwpx): 셀 내 비인라인 이미지의 offset 중복 적용 제거 및 셀 경계 clamp)
                                     para_y += pic_h;
                                 }
                                 has_preceding_text = true;
