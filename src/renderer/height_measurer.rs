@@ -1123,9 +1123,20 @@ impl MeasuredTable {
     }
 
     /// 지정 행이 인트라-로우 분할 가능한지 판별한다.
-    /// 행의 모든 셀이 단일 줄(≤1)이면 분할 불가 (이미지 셀).
-    /// 2줄 이상의 셀이 하나라도 있으면 분할 가능 (텍스트 셀).
+    ///
+    /// 표의 `page_break` 속성을 우선 적용:
+    /// - `RowBreak` (한컴 "셀 단위로 나눔"): 행 내부 분할 허용 → 셀 콘텐츠 길이 검사
+    /// - `CellBreak` (한컴 "나눔"): 행 경계에서만 분할 → 항상 false
+    /// - `None` (한컴 "나누지 않음"): 분할 자체를 허용하지 않음 → 항상 false
+    ///
+    /// 콘텐츠 검사: 행의 모든 셀이 단일 줄이면 분할 불가, 2줄 이상이 하나라도
+    /// 있으면 분할 가능.
     pub fn is_row_splittable(&self, row: usize) -> bool {
+        use crate::model::table::TablePageBreak;
+        // 표 속성이 행 내부 분할을 허용하지 않으면 무조건 false
+        if !matches!(self.page_break, TablePageBreak::RowBreak) {
+            return false;
+        }
         let cells_in_row: Vec<&MeasuredCell> = self.cells.iter()
             .filter(|c| c.row == row && c.row_span == 1)
             .collect();
