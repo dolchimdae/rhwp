@@ -25,7 +25,17 @@ pub struct Paragraph {
     /// 글자 모양 변경 위치 목록
     pub char_shapes: Vec<CharShapeRef>,
     /// 줄 레이아웃 정보
+    ///
+    /// 렌더링 경로가 참조하는 현재값. 로드 시 한컴이 제공하지 않은 wrap 을
+    /// rhwp 가 reflow 로 합성해서 여기에 대체한 경우 `original_line_segs` 에
+    /// 원본이 보관되고 직렬화 시에는 원본이 출력된다 (round-trip 보존).
     pub line_segs: Vec<LineSeg>,
+    /// 원본 lineseg (reflow 로 `line_segs` 가 대체된 경우에만 Some)
+    ///
+    /// 의미론은 `Section::raw_stream` 과 동일: 값이 있으면 직렬화 시 이 값을
+    /// 사용해 원본 바이트를 복원. 편집으로 문단이 바뀌면 None 으로 초기화하여
+    /// 재직렬화를 유도해야 한다.
+    pub original_line_segs: Option<Vec<LineSeg>>,
     /// 영역 태그 정보
     pub range_tags: Vec<RangeTag>,
     /// 필드 텍스트 범위 (0x03~0x04 사이 텍스트 인덱스 + 컨트롤 인덱스)
@@ -577,6 +587,7 @@ impl Paragraph {
             char_offsets: new_char_offsets,
             char_shapes: new_char_shapes,
             line_segs: new_line_segs,
+            original_line_segs: None,
             range_tags: new_range_tags,
             field_ranges: Vec::new(), // controls가 이동하지 않으므로 새 문단에는 필드 없음
             char_count: new_char_count,
