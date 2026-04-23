@@ -83,12 +83,12 @@ fn parse_page_pr(e: &quick_xml::events::BytesStart, page: &mut PageDef) {
         match attr.key.as_ref() {
             b"width" => page.width = parse_u32(&attr),
             b"height" => page.height = parse_u32(&attr),
-            // HWPX에서는 landscape 플래그를 false로 유지한다.
-            // HWPX의 width/height는 이미 실제 용지 방향대로 저장되어 있어
-            // 렌더러가 추가로 교환(swap)할 필요가 없다.
-            // HWP 바이너리는 항상 짧은변=width, 긴변=height로 저장하고
-            // landscape=true일 때 렌더러가 교환하지만, HWPX는 다른 규약을 따른다.
-            b"landscape" => { /* 무시: landscape = false 유지 */ }
+            // OWPML: NARROWLY = 가로(landscape), WIDELY = 세로(portrait).
+            // HWPX도 HWP 바이너리와 동일하게 width=짧은변, height=긴변으로 저장되며
+            // landscape=true일 때 렌더러가 교환한다.
+            b"landscape" => {
+                page.landscape = attr_str(&attr) == "NARROWLY";
+            }
             _ => {}
         }
     }
@@ -2841,5 +2841,56 @@ mod tests {
         let xml = r#"<?xml version="1.0"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"/>"#;
         let section = parse_hwpx_section(xml).unwrap();
         assert!(section.paragraphs.is_empty());
+    }
+
+    fn page_pr_section_xml(landscape_attr: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph"
+        xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section">
+  <hp:p paraPrIDRef="0" styleIDRef="0">
+    <hp:secPr>
+      <hp:pagePr {} width="59528" height="84188" gutterType="LEFT_ONLY">
+        <hp:margin header="2834" footer="2834" gutter="0"
+                   left="2834" right="2834" top="1417" bottom="1417"/>
+      </hp:pagePr>
+    </hp:secPr>
+  </hp:p>
+</hs:sec>"#,
+            landscape_attr
+        )
+    }
+
+    /// OWPML: landscape="NARROWLY" 는 가로 방향 → page_def.landscape=true
+    #[test]
+    fn test_pagepr_landscape_narrowly_is_landscape() {
+        let xml = page_pr_section_xml(r#"landscape="NARROWLY""#);
+        let section = parse_hwpx_section(&xml).unwrap();
+        let page = &section.section_def.page_def;
+        assert!(page.landscape, "NARROWLY 는 가로(landscape)로 파싱되어야 함");
+        assert_eq!(page.width, 59528);
+        assert_eq!(page.height, 84188);
+        assert_eq!(page.margin_left, 2834);
+        assert_eq!(page.margin_right, 2834);
+    }
+
+    /// OWPML: landscape="WIDELY" 는 세로 방향 → page_def.landscape=false
+    #[test]
+    fn test_pagepr_landscape_widely_is_portrait() {
+        let xml = page_pr_section_xml(r#"landscape="WIDELY""#);
+        let section = parse_hwpx_section(&xml).unwrap();
+        let page = &section.section_def.page_def;
+        assert!(!page.landscape, "WIDELY 는 세로(portrait)로 파싱되어야 함");
+        assert_eq!(page.width, 59528);
+        assert_eq!(page.height, 84188);
+    }
+
+    /// landscape 속성 자체가 없으면 기본값(false = 세로) 유지
+    #[test]
+    fn test_pagepr_landscape_missing_defaults_to_portrait() {
+        let xml = page_pr_section_xml("");
+        let section = parse_hwpx_section(&xml).unwrap();
+        let page = &section.section_def.page_def;
+        assert!(!page.landscape, "landscape 속성 없으면 기본값 false(세로)");
     }
 }
