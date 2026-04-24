@@ -7,6 +7,7 @@ use crate::model::document::Document;
 use crate::model::paragraph::Paragraph;
 use crate::renderer::style_resolver::{resolve_styles, ResolvedStyleSet};
 use crate::renderer::composer::{compose_section, reflow_line_segs};
+use crate::renderer::hwpunit_to_px;
 use crate::renderer::layout::LayoutEngine;
 use crate::renderer::page_layout::PageLayoutInfo;
 use crate::renderer::DEFAULT_DPI;
@@ -212,11 +213,17 @@ impl DocumentCore {
 
             for para in &mut section.paragraphs {
                 // 본문 문단 reflow
-                if Self::needs_line_seg_reflow(para) {
+                // narrow (lineSegArray 누락) + broad (긴 텍스트 + 1 lineseg + 개행 없음)
+                // broad 조건은 한컴이 가로 HWPX 저장 시 lineseg 1개만 남기는 패턴 (Bug 1) 포함.
+                // round-trip 보존을 위해 reflow 전에 원본을 original_line_segs 에 저장.
+                if Self::needs_reflow_broadly(para) {
                     let para_style = styles.para_styles.get(para.para_shape_id as usize);
                     let margin_left = para_style.map(|s| s.margin_left).unwrap_or(0.0);
                     let margin_right = para_style.map(|s| s.margin_right).unwrap_or(0.0);
                     let available_width = (col_width - margin_left - margin_right).max(1.0);
+                    if para.original_line_segs.is_none() {
+                        para.original_line_segs = Some(para.line_segs.clone());
+                    }
                     reflow_line_segs(para, available_width, styles, dpi);
                 }
 
@@ -243,15 +250,20 @@ impl DocumentCore {
                 }
 
                 // 표 셀 내부 문단 reflow
+                // narrow + broad 둘 다 처리. broad 는 가로 HWPX 의 셀 내 긴 텍스트 (Bug 1).
+                // available width 는 cell.width (HWPUNIT) 를 px 로 변환 — 컬럼 너비 근사보다 정확.
                 for ctrl in &mut para.controls {
                     if let Control::Table(ref mut table) = ctrl {
                         for cell in &mut table.cells {
+                            // cell.width 는 HWPUNIT, reflow_line_segs 는 px 입력 기대
+                            let cell_width_px = hwpunit_to_px(cell.width as i32, dpi);
+                            let cell_available_width = cell_width_px.max(1.0);
                             for cell_para in &mut cell.paragraphs {
-                                if Self::needs_line_seg_reflow(cell_para) {
-                                    // 셀 너비가 아직 불확정이므로 컬럼 너비를 근사값으로 사용.
-                                    // 핵심은 line_height > 0을 보장하는 것이며,
-                                    // 실제 셀 내 줄바꿈은 테이블 레이아웃이 재수행한다.
-                                    reflow_line_segs(cell_para, col_width, styles, dpi);
+                                if Self::needs_reflow_broadly(cell_para) {
+                                    if cell_para.original_line_segs.is_none() {
+                                        cell_para.original_line_segs = Some(cell_para.line_segs.clone());
+                                    }
+                                    reflow_line_segs(cell_para, cell_available_width, styles, dpi);
                                 }
                             }
                         }

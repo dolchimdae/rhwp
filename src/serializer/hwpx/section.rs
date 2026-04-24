@@ -125,15 +125,19 @@ fn first_run_char_shape_id(p: &Paragraph) -> u32 {
 /// Paragraph 하나를 (`<hp:t>` XML, lineseg XML, 다음 vert_cursor)로 변환.
 ///
 /// `<hp:lineseg>` 출력 원칙 (#177):
-/// - `para.line_segs` 가 비어있지 않으면 **IR 값 그대로 출력**
-/// - 비어있을 때만 텍스트 내 `\n` 기반으로 fallback 생성 (빈 문단·`Document::default()` 호환)
+/// - `para.original_line_segs` 가 있으면 **그 값** 을 출력 (rhwp 가 로드 시 reflow 로
+///   `line_segs` 를 대체한 경우 — round-trip 안정성 유지)
+/// - 없고 `para.line_segs` 가 비어있지 않으면 **IR 값 그대로 출력**
+/// - 둘 다 비어있을 때만 텍스트 내 `\n` 기반으로 fallback 생성 (빈 문단·`Document::default()` 호환)
 fn render_paragraph_parts(para: &Paragraph, vert_start: u32) -> (String, String, u32) {
     let t_xml = render_hp_t_content(&para.text);
 
-    if !para.line_segs.is_empty() {
+    let effective_segs = para.original_line_segs.as_deref()
+        .unwrap_or(&para.line_segs);
+    if !effective_segs.is_empty() {
         // IR 기반 출력 — 원본 lineseg 값 보존 (#177)
-        let linesegs = render_lineseg_array_from_ir(&para.line_segs);
-        let vert_end = next_vert_cursor_from_ir(&para.line_segs, vert_start);
+        let linesegs = render_lineseg_array_from_ir(effective_segs);
+        let vert_end = next_vert_cursor_from_ir(effective_segs, vert_start);
         (t_xml, linesegs, vert_end)
     } else {
         // Fallback — IR에 line_segs 가 없으면 기존 생성 로직 유지
