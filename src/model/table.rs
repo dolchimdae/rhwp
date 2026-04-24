@@ -28,7 +28,7 @@ pub struct Table {
     /// 2D 그리드 인덱스: grid[row * col_count + col] = Some(cell_idx)
     /// 병합 셀의 span 영역 전체가 앵커 셀 인덱스를 가리킴
     pub cell_grid: Vec<Option<usize>>,
-    /// 쪽 경계에서 나눔 (0: 나누지 않음, 1: 셀 단위로 나눔)
+    /// 쪽 경계에서 나눔 (한컴 UI: 나누지 않음 / 나눔 / 셀 단위로 나눔). `TablePageBreak` 정의 참조.
     pub page_break: TablePageBreak,
     /// 제목 줄 자동 반복
     pub repeat_header: bool,
@@ -52,16 +52,25 @@ pub struct Table {
     pub dirty: bool,
 }
 
-/// 표 쪽 나눔 종류
-/// bit 0-1: 0=나누지 않음, 1=셀 단위로 나눔, 2=나눔(행 단위)
+/// 표 쪽 나눔 종류 (한컴 UI "쪽 경계에서" 옵션)
+///
+/// HWP 바이너리 bit 0-1 / HWPX `pageBreak` 속성:
+/// - 0 / "NONE" → `None` (한컴 UI: "나누지 않음")
+/// - 1 / "CELL" → `CellBreak` (한컴 UI: **"나눔"** — 행 경계에서만 나눔)
+/// - 2 / "ROW" → `RowBreak` (한컴 UI: **"셀 단위로 나눔"** — 행 내부 분할 허용)
+///
+/// **주의**: enum 이름 (`CellBreak`/`RowBreak`) 과 한컴 UI 라벨이 직관과 반대다.
+/// 한컴 UI "나눔" = 행 경계 split = `CellBreak`,
+/// 한컴 UI "셀 단위로 나눔" = 행 내부 split 가능 = `RowBreak`.
+/// 이름은 OWPML 키워드 ("CELL"/"ROW") 를 따라간 결과로, 라벨 의미와 다르다.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum TablePageBreak {
-    /// 나누지 않음 (0)
+    /// "나누지 않음" — 표 자체를 페이지에서 분할하지 않음 (0 / "NONE")
     #[default]
     None,
-    /// 셀 단위로 나눔 (1) — 행 내부(인트라-로우) 분할 허용
+    /// "나눔" — 행 경계에서만 분할 (인트라-로우 분할 없음). HWPX "CELL" (1).
     CellBreak,
-    /// 나눔 (2) — 행 경계에서만 나눔 (인트라-로우 분할 없음)
+    /// "셀 단위로 나눔" — 행 내부(인트라-로우) 분할 허용. HWPX "ROW"/"ROW_BREAK" (2).
     RowBreak,
 }
 
