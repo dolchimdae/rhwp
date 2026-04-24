@@ -51,6 +51,24 @@ pub fn parse_i32(attr: &quick_xml::events::attributes::Attribute) -> i32 {
     attr_str(attr).parse().unwrap_or(0)
 }
 
+/// HWPUNIT 을 u32 로 파싱하되 signed/unsigned 표기 모두 수용.
+///
+/// HWPX 는 음수 HWPUNIT 값을 두 가지 방식으로 인코딩할 수 있다:
+/// - signed i32 문자열: "-332"
+/// - unsigned u32 비트 패턴: "4294966964" (= -332 의 2의 보수)
+///
+/// 기존 `parse_i32(&attr) as u32` 는 u32 비트 패턴 (양의 큰 값) 을 i32 overflow 로
+/// 실패시켜 0 을 반환했다. 이 함수는 양쪽 표기 모두를 올바른 u32 비트 패턴으로 보존한다.
+pub fn parse_hwpunit_u32(attr: &quick_xml::events::attributes::Attribute) -> u32 {
+    let s = attr_str(attr);
+    // signed 표기 우선 시도 ("-332" 같은 일반 음수)
+    if let Ok(v) = s.parse::<i32>() {
+        return v as u32;
+    }
+    // unsigned 표기 fallback ("4294966964" 같은 큰 값)
+    s.parse::<u32>().unwrap_or(0)
+}
+
 /// "#RRGGBB" 또는 "#AARRGGBB" 형식의 색상을 HWP ColorRef(0x00BBGGRR)로 변환
 pub fn parse_color(attr: &quick_xml::events::attributes::Attribute) -> u32 {
     let s = attr_str(attr);
