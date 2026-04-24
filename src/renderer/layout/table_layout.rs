@@ -1383,13 +1383,24 @@ impl LayoutEngine {
                                     &cell_area, &inner_area, &inner_area, &inner_area,
                                     para_y, para_alignment,
                                 );
+                                // 셀 내부 이미지는 horzOffset 등으로 셀 경계를 넘지 않도록 clamp.
+                                // 이미지가 셀보다 넓으면 좌측 정렬 유지 (clamp 결과 cell_left).
+                                let cell_left = inner_area.x;
+                                let cell_right = inner_area.x + inner_area.width;
+                                let max_x = (cell_right - pic_w).max(cell_left);
+                                let pic_x = pic_x.clamp(cell_left, max_x);
                                 let pic_area = LayoutRect {
                                     x: pic_x,
                                     y: pic_y,
                                     width: pic_w,
                                     height: pic_h,
                                 };
-                                self.layout_picture(tree, &mut cell_node, pic, &pic_area, bin_data_content, Alignment::Left, Some(section_index), None, None);
+                                // layout_picture 가 offset 을 재적용하지 않도록 clone 후 offset 을 0 으로 세팅.
+                                // (compute_object_position 에서 이미 적용 + clamp 완료)
+                                let mut pic_for_render = pic.as_ref().clone();
+                                pic_for_render.common.horizontal_offset = 0;
+                                pic_for_render.common.vertical_offset = 0;
+                                self.layout_picture(tree, &mut cell_node, &pic_for_render, &pic_area, bin_data_content, Alignment::Left, Some(section_index), None, None);
                                 para_y += pic_h;
                             }
                             has_preceding_text = true;

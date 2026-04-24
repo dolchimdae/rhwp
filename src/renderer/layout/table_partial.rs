@@ -743,8 +743,8 @@ impl LayoutEngine {
                                     }
                                     inline_x += pic_w;
                                 } else {
-                                    // 비인라인 이미지: 본문배치 속성(가로/세로 기준, 정렬, 오프셋) 적용
-                                    // table_layout.rs 의 동일 분기와 같은 경로 사용 (Issue #2)
+                                    // 비-인라인(자리차지/글뒤로/글앞으로) 이미지:
+                                    // 본문배치 속성(가로/세로 기준, 정렬, 오프셋) 적용 (table_layout.rs 와 동일)
                                     let pic_w = hwpunit_to_px(pic.common.width as i32, self.dpi);
                                     let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
                                     let cell_area = LayoutRect {
@@ -757,13 +757,22 @@ impl LayoutEngine {
                                         &cell_area, &inner_area, &inner_area, &inner_area,
                                         para_y, para_alignment,
                                     );
+                                    // 셀 내부 이미지는 horzOffset 등으로 셀 경계를 넘지 않도록 clamp.
+                                    let cell_left = inner_area.x;
+                                    let cell_right = inner_area.x + inner_area.width;
+                                    let max_x = (cell_right - pic_w).max(cell_left);
+                                    let pic_x = pic_x.clamp(cell_left, max_x);
                                     let pic_area = LayoutRect {
                                         x: pic_x,
                                         y: pic_y,
                                         width: pic_w,
                                         height: pic_h,
                                     };
-                                    self.layout_picture(tree, &mut cell_node, pic, &pic_area, bin_data_content, Alignment::Left, None, None, None);
+                                    // layout_picture 가 offset 을 재적용하지 않도록 clone 후 offset 을 0 으로 세팅.
+                                    let mut pic_for_render = pic.as_ref().clone();
+                                    pic_for_render.common.horizontal_offset = 0;
+                                    pic_for_render.common.vertical_offset = 0;
+                                    self.layout_picture(tree, &mut cell_node, &pic_for_render, &pic_area, bin_data_content, Alignment::Left, None, None, None);
                                     para_y += pic_h;
                                 }
                                 has_preceding_text = true;
