@@ -416,7 +416,7 @@ impl LayoutEngine {
             // 셀 내 텍스트 높이 (분할 행이면 줄 범위 내만 계산)
             // spacing_before: 셀 첫 문단 제외, spacing_after: 셀 마지막 문단 제외
             let split_para_count = cell.paragraphs.len();
-            let total_content_height = if let Some(ref ranges) = line_ranges {
+            let mut total_content_height = if let Some(ref ranges) = line_ranges {
                 let mut total = 0.0;
                 for (pi, ((comp, para), &(start, end))) in composed_paras.iter()
                     .zip(cell.paragraphs.iter())
@@ -472,6 +472,22 @@ impl LayoutEngine {
                     )
                 }
             };
+
+            // 수직 정렬용: 비인라인 이미지/도형 높이를 콘텐츠 높이에 합산
+            // (table_layout.rs 의 동일 계산과 맞춤 — 비인라인 이미지가 있으면 센터 정렬이 과도해지지 않도록)
+            for para in &cell.paragraphs {
+                for ctrl in &para.controls {
+                    match ctrl {
+                        Control::Picture(pic) if !pic.common.treat_as_char => {
+                            total_content_height += hwpunit_to_px(pic.common.height as i32, self.dpi);
+                        }
+                        Control::Shape(shape) if !shape.common().treat_as_char => {
+                            total_content_height += hwpunit_to_px(shape.common().height as i32, self.dpi);
+                        }
+                        _ => {}
+                    }
+                }
+            }
 
             // 수직 정렬
             // 분할 행에서도 셀 콘텐츠가 visible area에 모두 들어가면 원래 정렬 적용
@@ -727,14 +743,27 @@ impl LayoutEngine {
                                     }
                                     inline_x += pic_w;
                                 } else {
-                                    // 비인라인 이미지: 기존 동작
-                                    let pic_area = LayoutRect {
+                                    // 비인라인 이미지: 본문배치 속성(가로/세로 기준, 정렬, 오프셋) 적용
+                                    // table_layout.rs 의 동일 분기와 같은 경로 사용 (Issue #2)
+                                    let pic_w = hwpunit_to_px(pic.common.width as i32, self.dpi);
+                                    let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
+                                    let cell_area = LayoutRect {
                                         y: para_y,
                                         height: (inner_area.height - (para_y - inner_area.y)).max(0.0),
                                         ..inner_area
                                     };
-                                    self.layout_picture(tree, &mut cell_node, pic, &pic_area, bin_data_content, para_alignment, None, None, None);
-                                    let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
+                                    let (pic_x, pic_y) = self.compute_object_position(
+                                        &pic.common, pic_w, pic_h,
+                                        &cell_area, &inner_area, &inner_area, &inner_area,
+                                        para_y, para_alignment,
+                                    );
+                                    let pic_area = LayoutRect {
+                                        x: pic_x,
+                                        y: pic_y,
+                                        width: pic_w,
+                                        height: pic_h,
+                                    };
+                                    self.layout_picture(tree, &mut cell_node, pic, &pic_area, bin_data_content, Alignment::Left, None, None, None);
                                     para_y += pic_h;
                                 }
                                 has_preceding_text = true;
