@@ -1738,6 +1738,11 @@ impl LayoutEngine {
                     } else {
                         composed.get(*para_index).cloned()
                     };
+                    // 독립 플로트 표 소급 삽입으로 배치된 PartialParagraph(start_line=0):
+                    // para_start_y가 아직 등록되지 않았으면 현재 y_offset으로 등록
+                    if *start_line == 0 && !para_start_y.contains_key(para_index) {
+                        para_start_y.insert(*para_index, y_offset);
+                    }
                     y_offset = self.layout_partial_paragraph(
                         tree,
                         col_node,
@@ -2142,7 +2147,12 @@ impl LayoutEngine {
                 let is_tac = para.controls.get(control_index)
                     .map(|c| matches!(c, Control::Table(t) if t.common.treat_as_char))
                     .unwrap_or(false);
-                if !is_tac {
+                let text_already_laid_out = page_content.column_contents.iter().any(|cc| {
+                    cc.items.iter().any(|it| {
+                        matches!(it, PageItem::PartialParagraph { para_index: pi, .. } if *pi == para_index)
+                    })
+                });
+                if !is_tac && !text_already_laid_out {
                     let has_real_text = para.text.chars().any(|c| c > '\u{001F}' && c != '\u{FFFC}');
                     if has_real_text {
                         if let Some(comp) = composed.get(para_index) {

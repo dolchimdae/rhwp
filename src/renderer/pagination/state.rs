@@ -1,6 +1,6 @@
 //! PaginationState: paginate_with_measured의 가변 상태를 캡슐화
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::renderer::page_layout::PageLayoutInfo;
 use super::{PageContent, ColumnContent, PageItem, WrapAroundPara};
 
@@ -41,6 +41,9 @@ pub(super) struct PaginationState {
     /// 레이어 1이 advance_column_or_new_page를 호출 중임을 표시.
     /// 이 플래그가 true이면 레이어 2(check_last_item_overflow)를 스킵하여 이중 이동 방지.
     pub layer1_advancing: bool,
+    /// 독립 플로트 표(비-TAC, TopAndBottom, vert=Para, vert_offset>0)의 소급 삽입으로
+    /// 이미 배치된 문단 인덱스 집합. 중복 배치 방지용.
+    pub pre_placed_paras: HashSet<usize>,
 }
 
 impl PaginationState {
@@ -72,6 +75,7 @@ impl PaginationState {
             defense_counts: HashMap::new(),
             overflow_carry: None,
             layer1_advancing: false,
+            pre_placed_paras: HashSet::new(),
         }
     }
 

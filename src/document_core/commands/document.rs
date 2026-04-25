@@ -318,7 +318,9 @@ impl DocumentCore {
                             Control::Table(t) if !t.common.treat_as_char
                                 && matches!(t.common.text_wrap, crate::model::shape::TextWrap::TopAndBottom)
                                 && t.common.height > 0
-                                && t.raw_ctrl_data.is_empty() =>
+                                && t.raw_ctrl_data.is_empty()
+                                && !(matches!(t.common.vert_rel_to, crate::model::shape::VertRelTo::Para)
+                                    && t.common.vertical_offset > 0) =>
                                 (t.common.height as i32, t.common.vertical_offset as i32,
                                  t.outer_margin_top as i32, t.outer_margin_bottom as i32),
                             _ => continue,
