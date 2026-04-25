@@ -116,8 +116,12 @@ fn serialize_paragraph_with_msb(para: &Paragraph, base_level: u16, is_last: bool
     }
 
     // PARA_LINE_SEG
-    if !para.line_segs.is_empty() {
-        let data = serialize_para_line_seg(&para.line_segs);
+    // original_line_segs 가 있으면 원본 복원 (rhwp 가 로드 시 reflow 로
+    // line_segs 를 대체한 경우) — round-trip 안정성 유지
+    let effective_line_segs = para.original_line_segs.as_deref()
+        .unwrap_or(&para.line_segs);
+    if !effective_line_segs.is_empty() {
+        let data = serialize_para_line_seg(effective_line_segs);
         records.push(Record {
             tag_id: tags::HWPTAG_PARA_LINE_SEG,
             level: base_level + 1,
@@ -205,9 +209,13 @@ fn serialize_para_header_with_mask(para: &Paragraph, num_char_shapes: usize, is_
     w.write_u8(break_val).unwrap();
 
     // count 필드는 실제 데이터 기반으로 항상 재생성 (편집 후 불일치 방지)
+    // line_segs count 는 original_line_segs 가 있으면 그쪽 개수 (재직렬화 round-trip)
+    let effective_num_line_segs = para.original_line_segs.as_ref()
+        .map(|v| v.len())
+        .unwrap_or(para.line_segs.len());
     w.write_u16(num_char_shapes as u16).unwrap();
     w.write_u16(para.range_tags.len() as u16).unwrap();
-    w.write_u16(para.line_segs.len() as u16).unwrap();
+    w.write_u16(effective_num_line_segs as u16).unwrap();
 
     // instanceId + 추가 바이트: raw_header_extra에서 복원
     // raw_header_extra[0..5] = numCharShapes(2) + numRangeTags(2) + numLineSegs(2) → 건너뜀
