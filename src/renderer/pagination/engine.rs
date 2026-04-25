@@ -74,6 +74,11 @@ impl Paginator {
         let mut hidden_empty_paras: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         for (para_idx, para) in paragraphs.iter().enumerate() {
+            // 독립 플로트 표의 소급 삽입으로 이미 배치된 문단은 건너뜀
+            if st.pre_placed_paras.contains(&para_idx) {
+                continue;
+            }
+
             // 표 컨트롤 여부 사전 감지
             let has_table = measured.paragraph_has_table(para_idx);
 
@@ -333,7 +338,7 @@ impl Paginator {
             self.process_controls(
                 &mut st, para_idx, para, measured, &measurer,
                 para_height, para_height_for_fit, base_available_height, page_def,
-                height_before_controls,
+                height_before_controls, paragraphs,
             );
 
             let page_changed = st.pages.len() != page_count_before_controls;
@@ -809,6 +814,7 @@ impl Paginator {
         base_available_height: f64,
         page_def: &PageDef,
         para_start_height: f64,
+        paragraphs: &[Paragraph],
     ) {
         for (ctrl_idx, ctrl) in para.controls.iter().enumerate() {
             match ctrl {
@@ -846,7 +852,7 @@ impl Paginator {
                     self.paginate_table_control(
                         st, para_idx, ctrl_idx, para, measured, measurer,
                         para_height, para_height_for_fit, base_available_height,
-                        para_start_height,
+                        para_start_height, paragraphs,
                     );
                 }
                 Control::Shape(shape_obj) => {
@@ -931,6 +937,7 @@ impl Paginator {
         para_height_for_fit: f64,
         base_available_height: f64,
         para_start_height: f64,
+        paragraphs: &[Paragraph],
     ) {
         let table = if let Control::Table(t) = &para.controls[ctrl_idx] { t } else { return };
         let measured_table = measured.get_measured_table(para_idx, ctrl_idx);
@@ -1141,6 +1148,110 @@ impl Paginator {
                 control_index: ctrl_idx,
             });
             st.current_height += effective_height;
+        }
+
+        // 독립 플로트 표 소급 삽입:
+        // 비-TAC, TopAndBottom, vert=Para, vert_offset>0, raw_ctrl_data가 비어있는 표는
+        // 표보다 앞에 배치되어야 할 후속 문단들이 있을 수 있다.
+        // (표가 문단 시작에서 아래로 떨어진 위치에 배치되므로, 그 사이 공간에 후속 문단들이 배치됨)
+        let is_independent_float = !is_tac_table
+            && matches!(table.common.text_wrap, crate::model::shape::TextWrap::TopAndBottom)
+            && matches!(table.common.vert_rel_to, crate::model::shape::VertRelTo::Para)
+            && table.common.vertical_offset > 0
+            && table.raw_ctrl_data.is_empty();
+        if is_independent_float {
+            // 표 앵커 문단의 첫 LINE_SEG vpos를 기준으로 표 시작 vpos 계산
+            let para_start_vpos = para.line_segs.first().map(|s| s.vertical_pos).unwrap_or(0);
+            let table_start_vpos = para_start_vpos + table.common.vertical_offset as i32;
+
+            // 후속 문단 중 vpos < table_start_vpos인 문단 수집 (표 컨트롤 없는 문단만)
+            let mut pre_paras: Vec<usize> = Vec::new();
+            for next_idx in (para_idx + 1)..paragraphs.len() {
+                if st.pre_placed_paras.contains(&next_idx) {
+                    continue;
+                }
+                let next_para = &paragraphs[next_idx];
+                // 표 컨트롤이 있는 문단은 소급 삽입 대상 아님
+                let has_table_ctrl = next_para.controls.iter().any(|c| matches!(c, Control::Table(_)));
+                if has_table_ctrl {
+                    break;
+                }
+                let next_vpos = next_para.line_segs.first().map(|s| s.vertical_pos).unwrap_or(i32::MAX);
+                if next_vpos < table_start_vpos {
+                    pre_paras.push(next_idx);
+                } else {
+                    break;
+                }
+            }
+
+            if !pre_paras.is_empty() {
+                // current_items에서 para_idx에 대한 비-연속 Table/PartialTable 항목 찾기
+                let insert_pos = st.current_items.iter().position(|item| {
+                    match item {
+                        PageItem::Table { para_index, .. } => *para_index == para_idx,
+                        PageItem::PartialTable { para_index, is_continuation, .. } => {
+                            *para_index == para_idx && !*is_continuation
+                        }
+                        _ => false,
+                    }
+                });
+
+                // 삽입 아이템 구성: 호스트 텍스트(PartialParagraph pi=para_idx) 먼저, 그 다음 pre_paras
+                let host_line_count = measured.get_measured_paragraph(para_idx)
+                    .map(|mp| mp.line_heights.len())
+                    .unwrap_or(0);
+                let mut insert_items: Vec<PageItem> = Vec::new();
+                // 호스트 문단 텍스트: 표보다 앞에 렌더링되어야 함
+                if host_line_count > 0 && !para.text.chars().any(|c| c > '\u{001F}' && c != '\u{FFFC}') == false {
+                    insert_items.push(PageItem::PartialParagraph {
+                        para_index: para_idx,
+                        start_line: 0,
+                        end_line: host_line_count,
+                    });
+                }
+                for &pi in &pre_paras {
+                    insert_items.push(PageItem::FullParagraph { para_index: pi });
+                }
+
+                if let Some(pos) = insert_pos {
+                    // 현재 단 current_items의 표 앞에 소급 삽입
+                    for (offset, item) in insert_items.into_iter().enumerate() {
+                        st.current_items.insert(pos + offset, item);
+                    }
+                    for pi in &pre_paras {
+                        st.pre_placed_paras.insert(*pi);
+                    }
+                } else {
+                    // current_items에 없으면 st.pages에서 가장 최근 PartialTable(para_idx) 검색
+                    let mut found = false;
+                    'outer: for page in st.pages.iter_mut().rev() {
+                        for col in page.column_contents.iter_mut().rev() {
+                            let pt_pos = col.items.iter().position(|item| {
+                                match item {
+                                    PageItem::Table { para_index, .. } => *para_index == para_idx,
+                                    PageItem::PartialTable { para_index, is_continuation, .. } => {
+                                        *para_index == para_idx && !*is_continuation
+                                    }
+                                    _ => false,
+                                }
+                            });
+                            if let Some(pos) = pt_pos {
+                                for (offset, item) in insert_items.into_iter().enumerate() {
+                                    col.items.insert(pos + offset, item);
+                                }
+                                for pi in &pre_paras {
+                                    st.pre_placed_paras.insert(*pi);
+                                }
+                                found = true;
+                                break 'outer;
+                            }
+                        }
+                    }
+                    if !found {
+                        // 표를 아직 배치하지 않았거나 찾지 못한 경우: 소급 삽입 스킵
+                    }
+                }
+            }
         }
 
         // 표 셀 내 각주 수집
