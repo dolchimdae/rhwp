@@ -1349,7 +1349,8 @@ impl Paginator {
         } else {
             0.0
         };
-        let remaining_on_page = table_available_height - st.current_height - host_text_height - v_offset_px;
+        // host_text는 v_offset 영역 내에 렌더링되므로, 둘 중 더 큰 값만 차감 (이중 공제 방지)
+        let remaining_on_page = table_available_height - st.current_height - host_text_height.max(v_offset_px);
 
         let first_row_h = if row_count > 0 { mt.row_heights[0] } else { 0.0 };
         let can_intra_split_early = !mt.cells.is_empty();
@@ -1421,7 +1422,8 @@ impl Paginator {
                 0.0
             };
             let host_extra = if !is_continuation && cursor_row == 0 && content_offset == 0.0 {
-                host_text_height
+                // host text가 v_offset 영역 내에 렌더링되면 별도 차감 안 함 (이중 공제 방지)
+                (host_text_height - v_offset_px).max(0.0)
             } else {
                 0.0
             };

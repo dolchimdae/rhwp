@@ -282,11 +282,34 @@ impl HeightMeasurer {
             let sum: f64 = line_heights.iter().zip(line_spacings.iter())
                 .map(|(h, s)| h + s)
                 .sum();
-            // TAC 표 문단에서 첫 LINE_SEG의 lh가 표 높이로 확장되고
-            // 마지막 SEG도 동일한 lh를 가질 때, 합산이 이중 계산됨.
-            // (표 앞 텍스트가 있어 LINE_SEG가 2개인 경우 발생)
-            // → vpos 기반 실제 높이와 비교하여 작은 값 사용
-            if has_table && para.line_segs.len() >= 2 {
+            // TAC 표 단독 문단(빈 텍스트): 렌더링은 표 높이만 사용 (line_height/spacing 미사용)
+            // → 측정 높이도 표 높이로 보정
+            let is_tac_only_para = has_table && para.line_segs.len() == 1
+                && para.text.chars().all(|c| c.is_control() || c == '\u{FFFC}');
+            if is_tac_only_para {
+                // TAC 표 높이 합계 사용
+                let tac_table_h: f64 = para.controls.iter()
+                    .filter_map(|c| {
+                        if let Control::Table(t) = c {
+                            if t.common.treat_as_char {
+                                let h = hwpunit_to_px(t.common.height as i32, self.dpi);
+                                Some(h)
+                            } else { None }
+                        } else { None }
+                    })
+                    .sum();
+                if tac_table_h > 0.0 { tac_table_h } else { sum }
+            } else if has_table && para.line_segs.len() == 1
+                && para.line_segs[0].text_height * 2 < para.line_segs[0].line_height
+            {
+                // 기존 로직: 마지막 line_spacing 제외
+                let last_ls = line_spacings.last().copied().unwrap_or(0.0);
+                sum - last_ls
+            } else if has_table && para.line_segs.len() >= 2 {
+                // TAC 표 문단에서 첫 LINE_SEG의 lh가 표 높이로 확장되고
+                // 마지막 SEG도 동일한 lh를 가질 때, 합산이 이중 계산됨.
+                // (표 앞 텍스트가 있어 LINE_SEG가 2개인 경우 발생)
+                // → vpos 기반 실제 높이와 비교하여 작은 값 사용
                 let first = &para.line_segs[0];
                 let last = &para.line_segs[para.line_segs.len() - 1];
                 if first.text_height * 2 < first.line_height
@@ -1123,9 +1146,20 @@ impl MeasuredTable {
     }
 
     /// 지정 행이 인트라-로우 분할 가능한지 판별한다.
-    /// 행의 모든 셀이 단일 줄(≤1)이면 분할 불가 (이미지 셀).
-    /// 2줄 이상의 셀이 하나라도 있으면 분할 가능 (텍스트 셀).
+    ///
+    /// 표의 `page_break` 속성을 우선 적용:
+    /// - `RowBreak` (한컴 "셀 단위로 나눔"): 행 내부 분할 허용 → 셀 콘텐츠 길이 검사
+    /// - `CellBreak` (한컴 "나눔"): 행 경계에서만 분할 → 항상 false
+    /// - `None` (한컴 "나누지 않음"): 분할 자체를 허용하지 않음 → 항상 false
+    ///
+    /// 콘텐츠 검사: 행의 모든 셀이 단일 줄이면 분할 불가, 2줄 이상이 하나라도
+    /// 있으면 분할 가능.
     pub fn is_row_splittable(&self, row: usize) -> bool {
+        use crate::model::table::TablePageBreak;
+        // 표 속성이 행 내부 분할을 허용하지 않으면 무조건 false
+        if !matches!(self.page_break, TablePageBreak::CellBreak) {
+            return false;
+        }
         let cells_in_row: Vec<&MeasuredCell> = self.cells.iter()
             .filter(|c| c.row == row && c.row_span == 1)
             .collect();

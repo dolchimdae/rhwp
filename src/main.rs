@@ -600,8 +600,8 @@ fn show_info(args: &[String]) {
                         table_idx += 1;
                         let page_break_str = match table.page_break {
                             rhwp::model::table::TablePageBreak::None => "나누지 않음",
-                            rhwp::model::table::TablePageBreak::CellBreak => "셀 단위 나눔",
-                            rhwp::model::table::TablePageBreak::RowBreak => "나눔(행 단위)",
+                            rhwp::model::table::TablePageBreak::CellBreak => "나눔",
+                            rhwp::model::table::TablePageBreak::RowBreak => "셀 단위로 나눔",
                         };
                         println!(
                             "표{} [{}]: {}행×{}열, 셀 {}개, 쪽나눔={} (attr=0x{:08x}), 제목반복={}",
