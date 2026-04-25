@@ -27,7 +27,7 @@ use crate::model::table::{Cell, Table, TablePageBreak, VerticalAlign};
 use crate::model::HwpUnit16;
 
 use super::HwpxError;
-use super::utils::{local_name, attr_str, parse_u8, parse_i8, parse_u16, parse_i16, parse_u32, parse_i32, parse_color, parse_bool, skip_element};
+use super::utils::{local_name, attr_str, parse_u8, parse_i8, parse_u16, parse_i16, parse_u32, parse_i32, parse_hwpunit_u32, parse_color, parse_bool, skip_element};
 
 /// section*.xml을 파싱하여 Section 모델로 변환한다.
 pub fn parse_hwpx_section(xml: &str) -> Result<Section, HwpxError> {
@@ -658,8 +658,8 @@ fn parse_table(
                                         _ => crate::model::shape::HorzAlign::Left,
                                     };
                                 }
-                                b"vertOffset" => { table.common.vertical_offset = parse_i32(&attr) as u32; }
-                                b"horzOffset" => { table.common.horizontal_offset = parse_i32(&attr) as u32; }
+                                b"vertOffset" => { table.common.vertical_offset = parse_hwpunit_u32(&attr); }
+                                b"horzOffset" => { table.common.horizontal_offset = parse_hwpunit_u32(&attr); }
                                 _ => {}
                             }
                         }
@@ -1106,8 +1106,8 @@ fn parse_picture(
                                         _ => HorzAlign::Left,
                                     };
                                 }
-                                b"vertOffset" => common.vertical_offset = parse_i32(&attr) as u32,
-                                b"horzOffset" => common.horizontal_offset = parse_i32(&attr) as u32,
+                                b"vertOffset" => common.vertical_offset = parse_hwpunit_u32(&attr),
+                                b"horzOffset" => common.horizontal_offset = parse_hwpunit_u32(&attr),
                                 _ => {}
                             }
                         }
@@ -1347,8 +1347,8 @@ fn parse_object_layout_child(
                             _ => HorzAlign::Left,
                         };
                     }
-                    b"vertOffset" => common.vertical_offset = parse_i32(&attr) as u32,
-                    b"horzOffset" => common.horizontal_offset = parse_i32(&attr) as u32,
+                    b"vertOffset" => common.vertical_offset = parse_hwpunit_u32(&attr),
+                    b"horzOffset" => common.horizontal_offset = parse_hwpunit_u32(&attr),
                     _ => {}
                 }
             }
