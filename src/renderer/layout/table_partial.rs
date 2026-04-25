@@ -147,9 +147,22 @@ impl LayoutEngine {
                             .map(|p| compose_paragraph(p))
                             .collect();
                         let ranges = self.compute_cell_line_ranges(cell, &composed, split_start_content_offset, 0.0, styles);
-                        self.calc_visible_content_height_from_ranges(
+                        let text_h = self.calc_visible_content_height_from_ranges(
                             &composed, &cell.paragraphs, &ranges, styles,
-                        )
+                        );
+                        let image_h: f64 = cell.paragraphs.iter()
+                            .flat_map(|p| p.controls.iter())
+                            .filter_map(|c| {
+                                if let Control::Picture(pic) = c {
+                                    if !pic.common.treat_as_char {
+                                        let ph = hwpunit_to_px(pic.common.height as i32, self.dpi);
+                                        if ph > split_start_content_offset { return Some(ph); }
+                                    }
+                                }
+                                None
+                            })
+                            .fold(0.0f64, f64::max);
+                        text_h.max(image_h)
                     };
                     let cell_h = remaining + pad_top + pad_bottom;
                     if cell_h > max_remaining_h {
@@ -161,14 +174,21 @@ impl LayoutEngine {
                 row_heights[start_row] = max_remaining_h;
             }
         }
+        // split_end_content_limit을 mut로 만들어 body 하단 가용 공간에 맞춰 확장
+        let mut split_end_content_limit = split_end_content_limit;
         if split_end_content_limit > 0.0 {
             let last_row = end_row.saturating_sub(1);
             if last_row < row_count {
-                // last_row가 인트라-로우 분할: 제한된 높이 적용
+                // 1. pagination 값으로 max_split_h 계산
                 let mut max_split_h = 0.0f64;
+                let mut max_pad_for_last_row = 0.0f64;
                 for cell in &table.cells {
                     if cell.row_span == 1 && cell.row as usize == last_row {
                         let (_, _, pad_top, pad_bottom) = self.resolve_cell_padding(cell, table);
+                        let pad = pad_top + pad_bottom;
+                        if pad > max_pad_for_last_row {
+                            max_pad_for_last_row = pad;
+                        }
                         let cell_h = split_end_content_limit + pad_top + pad_bottom;
                         if cell_h > max_split_h {
                             max_split_h = cell_h;
@@ -177,6 +197,16 @@ impl LayoutEngine {
                 }
                 if max_split_h > 0.0 {
                     row_heights[last_row] = max_split_h;
+                }
+                // 2. body 하단까지 가용 공간 확장
+                let body_bottom = col_area.y + col_area.height;
+                let prev_rows_h: f64 = (start_row..last_row).map(|r| row_heights[r] + cell_spacing).sum();
+                let row_top = y_start + prev_rows_h;
+                let space_to_body_bottom = (body_bottom - row_top).max(0.0);
+                if space_to_body_bottom > row_heights[last_row] {
+                    row_heights[last_row] = space_to_body_bottom;
+                    // split_end_content_limit도 expand: 더 많은 텍스트가 page 1에 들어가도록
+                    split_end_content_limit = (space_to_body_bottom - max_pad_for_last_row).max(split_end_content_limit);
                 }
             }
         }
@@ -493,8 +523,14 @@ impl LayoutEngine {
             // 분할 행에서도 셀 콘텐츠가 visible area에 모두 들어가면 원래 정렬 적용
             use crate::model::table::VerticalAlign;
             // 분할 행에서는 항상 Top 정렬 (컨텐츠가 페이지를 넘어 분할되었으므로)
-            let effective_align = if is_in_split_row {
+            let effective_align = if is_split_start_row {
                 VerticalAlign::Top
+            } else if is_split_end_row && split_end_content_limit > 0.0 {
+                if total_content_height + 1.0 < split_end_content_limit {
+                    cell.vertical_align
+                } else {
+                    VerticalAlign::Top
+                }
             } else {
                 cell.vertical_align
             };
@@ -596,7 +632,14 @@ impl LayoutEngine {
                             continue;
                         }
                     } else if !has_nested_table {
-                        continue;
+                        let has_non_inline_obj = is_split_start_row && para.controls.iter().any(|c| match c {
+                            Control::Picture(p) => !p.common.treat_as_char,
+                            Control::Shape(s) => !s.common().treat_as_char,
+                            _ => false,
+                        });
+                        if !has_non_inline_obj {
+                            continue;
+                        }
                     }
                 }
 
@@ -757,6 +800,16 @@ impl LayoutEngine {
                                         &cell_area, &inner_area, &inner_area, &inner_area,
                                         para_y, para_alignment,
                                     );
+                                    // 분할 행 이미지 원자성: split_end_content_limit 기준 page 1/2 결정
+                                    let img_content_pos = (pic_y - inner_area.y).max(0.0);
+                                    let skip_image = if is_split_end_row && split_end_content_limit > 0.0 {
+                                        img_content_pos + pic_h > split_end_content_limit
+                                    } else if is_split_start_row && split_start_content_offset > 0.0 {
+                                        img_content_pos + pic_h <= split_start_content_offset
+                                    } else {
+                                        false
+                                    };
+                                    if !skip_image {
                                     // 셀 내부 이미지는 horzOffset 등으로 셀 경계를 넘지 않도록 clamp.
                                     let cell_left = inner_area.x;
                                     let cell_right = inner_area.x + inner_area.width;
@@ -774,6 +827,7 @@ impl LayoutEngine {
                                     pic_for_render.common.vertical_offset = 0;
                                     self.layout_picture(tree, &mut cell_node, &pic_for_render, &pic_area, bin_data_content, Alignment::Left, None, None, None);
                                     para_y += pic_h;
+                                    }
                                 }
                                 has_preceding_text = true;
                             }
