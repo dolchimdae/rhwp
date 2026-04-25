@@ -15379,7 +15379,9 @@
         }
     }
 
-    /// 12페이지 엔터 후 13페이지의 표 배치 검증
+    /// pi=199 앞 엔터 분할 시 pi=198 표 배치 안정성 검증 (회귀 방지).
+    /// CellBreak intra-row 분할 도입(Issue #6) 이후 pi=198이 어느 페이지에 있는지는
+    /// 표 분할 정책에 따라 달라질 수 있으나, 분할 전후 같은 페이지에 있어야 함.
     #[test]
     fn test_page12_enter_table_placement() {
         use crate::renderer::pagination::PageItem;
@@ -15389,56 +15391,32 @@
         doc.convert_to_editable_native().unwrap();
         doc.paginate();
 
-        let pages_before = doc.pagination[0].pages.len();
-        eprintln!("  pages_before = {}", pages_before);
+        // pi=198 표가 있는 페이지 인덱스 찾기 (분할 전)
+        let find_pi198 = |doc: &HwpDocument| -> Option<usize> {
+            for (idx, page) in doc.pagination[0].pages.iter().enumerate() {
+                if page.column_contents[0].items.iter()
+                    .any(|it| matches!(it, PageItem::Table { para_index: 198, .. }))
+                {
+                    return Some(idx);
+                }
+            }
+            None
+        };
 
-        // page 12 (idx=11) 내용 확인
-        let p12 = &doc.pagination[0].pages[11];
-        eprintln!("  page 12 items:");
-        for item in &p12.column_contents[0].items {
-            eprintln!("    {:?}", item);
-        }
+        let page_before = find_pi198(&doc).expect("pi=198 표가 어떤 페이지에 있어야 함");
+        eprintln!("  pi=198 표 배치 페이지 (before) = {}", page_before);
 
-        // page 13 (idx=12): pi=197(text), pi=198(table), pi=199(text)
-        let p13_before = &doc.pagination[0].pages[12];
-        eprintln!("  page 13 items (before):");
-        for item in &p13_before.column_contents[0].items {
-            eprintln!("    {:?}", item);
-        }
-        // pi=198 표가 page 13에 있는지 확인
-        let has_table_198_on_p13 = p13_before.column_contents[0].items.iter()
-            .any(|it| matches!(it, PageItem::Table { para_index: 198, .. }));
-        assert!(has_table_198_on_p13, "수정 전: pi=198 표가 page 13에 있어야 함");
-
-        // pi=199 앞에서 엔터 (pi=199를 분할하여 빈 문단 삽입)
+        // pi=199 앞에서 엔터 분할
         let result = doc.split_paragraph_native(0, 199, 0).unwrap();
         assert!(result.contains("\"ok\":true"), "split failed: {}", result);
 
-        let pages_after = doc.pagination[0].pages.len();
-        eprintln!("  pages_after = {}", pages_after);
+        let page_after = find_pi198(&doc).expect("분할 후에도 pi=198 표가 존재해야 함");
+        eprintln!("  pi=198 표 배치 페이지 (after) = {}", page_after);
 
-        // page 13 (idx=12): pi=198 표가 여전히 page 13에 있어야 함
-        if doc.pagination[0].pages.len() > 12 {
-            let p13_after = &doc.pagination[0].pages[12];
-            eprintln!("  page 13 items (after):");
-            for item in &p13_after.column_contents[0].items {
-                eprintln!("    {:?}", item);
-            }
-            let has_table_198_after = p13_after.column_contents[0].items.iter()
-                .any(|it| matches!(it, PageItem::Table { para_index: 198, .. }));
-
-            // page 14도 확인
-            if doc.pagination[0].pages.len() > 13 {
-                let p14_after = &doc.pagination[0].pages[13];
-                eprintln!("  page 14 items (after):");
-                for item in &p14_after.column_contents[0].items {
-                    eprintln!("    {:?}", item);
-                }
-            }
-
-            assert!(has_table_198_after,
-                "pi=198 표가 page 13에 있어야 하지만 다음 페이지로 밀려남");
-        }
+        // 분할 전후 같은 페이지에 있어야 함 (분할이 pi=198 표를 다른 페이지로 밀지 않아야 함)
+        assert_eq!(page_before, page_after,
+            "pi=198 표가 분할 전({}) 과 분할 후({}) 같은 페이지에 있어야 함",
+            page_before, page_after);
     }
 
     /// 문단 분할 후 페이지 수가 과도하게 증가하지 않는지 검증
